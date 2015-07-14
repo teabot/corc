@@ -51,6 +51,9 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
     }
 
     public Builder end() {
+      if (predicates.size() <= 1) {
+        throw new IllegalStateException("TODO");
+      }
       CompositePredicate popped = predicates.pop();
       popped.verify();
       sargsFactory.end();
@@ -131,7 +134,7 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     public PredicatePushDownFilter build() {
       if (predicates.size() != 1) {
-        throw new IllegalStateException("");
+        throw new IllegalStateException("TODO");
       }
       CompositePredicate root = predicates.peek();
       root.verify();
