@@ -24,9 +24,9 @@ import com.google.common.base.Objects;
 public class PredicatePushDownFilter extends BaseOperation<Void> implements Filter<Void> {
 
   private static final long serialVersionUID = 1L;
-  private final CompositePredicate root;
+  private final Predicate root;
 
-  PredicatePushDownFilter(CompositePredicate root) {
+  PredicatePushDownFilter(Predicate root) {
     this.root = root;
   }
 
