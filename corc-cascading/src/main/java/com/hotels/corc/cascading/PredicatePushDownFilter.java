@@ -26,12 +26,8 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
   private static final long serialVersionUID = 1L;
   private final CompositePredicate root;
 
-  // TODO Get this into the Corc source tap (some how)
-  private final SearchArgument sargs;
-
-  PredicatePushDownFilter(CompositePredicate root, SearchArgument sargs) {
+  PredicatePushDownFilter(CompositePredicate root) {
     this.root = root;
-    this.sargs = sargs;
   }
 
   @Override
@@ -41,62 +37,71 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
   public static class Builder {
 
-    private final Stack<CompositePredicate> predicates;
+    private final Stack<CompositePredicate> predicates = new Stack<>();
+    private final SearchArgumentFactory.Builder sargsFactory = SearchArgumentFactory.newBuilder();
 
     public Builder() {
-      predicates = new Stack<>();
       predicates.push(new IdentityPredicate());
     }
 
     public Builder between(Fields fields, Object lower, Object upper) {
       predicates.peek().addPredicate(new BetweenPredicate(fields, lower, upper));
+      sargsFactory.between(fields, lower, upper);
       return this;
     }
 
     public Builder end() {
       CompositePredicate popped = predicates.pop();
       popped.verify();
-      popped.end();
+      sargsFactory.end();
       return this;
     }
 
     public Builder equals(Fields fields, Object literal) {
       predicates.peek().addPredicate(new EqualsPredicate(fields, literal));
+      sargsFactory.equals(fields, literal);
       return this;
     }
 
     public Builder in(Fields fields, Object... literals) {
       predicates.peek().addPredicate(new InPredicate(fields, literals));
+      sargsFactory.in(fields, literals);
       return this;
     }
 
     public Builder isNull(Fields fields) {
       predicates.peek().addPredicate(new IsNullPredicate(fields));
+      sargsFactory.isNull(fields);
       return this;
     }
 
     public Builder lessThan(Fields fields, Object literal) {
       predicates.peek().addPredicate(new LessThanPredicate(fields, literal));
+      sargsFactory.lessThan(fields, literal);
       return this;
     }
 
     public Builder lessThanEquals(Fields fields, Object literal) {
       predicates.peek().addPredicate(new LessThanEqualsPredicate(fields, literal));
+      sargsFactory.lessThanEquals(fields, literal);
       return this;
     }
 
     public Builder greaterThan(Fields fields, Object literal) {
       predicates.peek().addPredicate(new GreaterThanPredicate(fields, literal));
+      sargsFactory.greaterThan(fields, literal);
       return this;
     }
 
     public Builder greaterThanEquals(Fields fields, Object literal) {
       predicates.peek().addPredicate(new GreaterThanEqualsPredicate(fields, literal));
+      sargsFactory.greaterThanEquals(fields, literal);
       return this;
     }
 
     public Builder nullSafeEquals(Fields fields, Object literal) {
       predicates.peek().addPredicate(new NullSafeEqualsPredicate(fields, literal));
+      sargsFactory.nullSafeEquals(fields, literal);
       return this;
     }
 
@@ -104,6 +109,7 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       AndPredicate andPredicate = new AndPredicate();
       predicates.peek().addPredicate(andPredicate);
       predicates.push(andPredicate);
+      sargsFactory.startAnd();
       return this;
     }
 
@@ -111,6 +117,7 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       NotPredicate notPredicate = new NotPredicate();
       predicates.peek().addPredicate(notPredicate);
       predicates.push(notPredicate);
+      sargsFactory.startNot();
       return this;
     }
 
@@ -118,6 +125,7 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       OrPredicate orPredicate = new OrPredicate();
       predicates.peek().addPredicate(orPredicate);
       predicates.push(orPredicate);
+      sargsFactory.startOr();
       return this;
     }
 
@@ -127,8 +135,9 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       }
       CompositePredicate root = predicates.peek();
       root.verify();
-      SearchArgument sargs = root.getSearchArgument();
-      return new PredicatePushDownFilter(root, sargs);
+      // TODO Get this into the Corc sink some how
+      SearchArgument sargs = sargsFactory.build();
+      return new PredicatePushDownFilter(root);
     }
   }
 
@@ -137,22 +146,9 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     abstract void verify();
 
-    abstract SearchArgument getSearchArgument();
   }
 
-  static abstract class BasePredicate implements Predicate {
-    private static final long serialVersionUID = 1L;
-
-    final SearchArgumentFactory.Builder sargsFactory = SearchArgumentFactory.newBuilder();
-
-    @Override
-    public SearchArgument getSearchArgument() {
-      return sargsFactory.build();
-    }
-
-  }
-
-  static abstract class ValuePredicate extends BasePredicate {
+  static abstract class ValuePredicate implements Predicate {
     private static final long serialVersionUID = 1L;
 
     final Fields fields;
@@ -193,11 +189,9 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
   interface CompositePredicate extends Predicate {
     void addPredicate(Predicate predicate);
-
-    void end();
   }
 
-  static abstract class ListCompositePredicate extends BasePredicate implements CompositePredicate {
+  static abstract class ListCompositePredicate implements CompositePredicate {
     private static final long serialVersionUID = 1L;
 
     final List<Predicate> predicates = new ArrayList<>();
@@ -217,14 +211,9 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       }
     }
 
-    @Override
-    public void end() {
-      sargsFactory.end();
-    }
-
   }
 
-  static abstract class SingletonCompositePredicate extends BasePredicate implements CompositePredicate {
+  static abstract class SingletonCompositePredicate implements CompositePredicate {
     private static final long serialVersionUID = 1L;
 
     Predicate predicate;
@@ -245,10 +234,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       predicate.verify();
     }
 
-    @Override
-    public void end() {
-      sargsFactory.end();
-    }
   }
 
   static class BetweenPredicate extends ValuePredicate {
@@ -260,7 +245,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
       super(fields);
       this.lower = lower;
       this.upper = upper;
-      sargsFactory.between(fields, this.lower, this.upper);
     }
 
     @Override
@@ -284,7 +268,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     EqualsPredicate(Fields fields, Object value) {
       super(fields, value);
-      sargsFactory.equals(fields, value);
     }
 
     @Override
@@ -303,7 +286,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
     InPredicate(Fields fields, Object... values) {
       super(fields);
       this.values = values;
-      sargsFactory.in(fields, values);
     }
 
     @Override
@@ -325,7 +307,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     IsNullPredicate(Fields fields) {
       super(fields);
-      sargsFactory.isNull(fields);
     }
 
     @Override
@@ -341,7 +322,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     LessThanPredicate(Fields fields, Object value) {
       super(fields, value);
-      sargsFactory.lessThan(fields, value);
     }
 
     @Override
@@ -358,7 +338,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     LessThanEqualsPredicate(Fields fields, Object value) {
       super(fields, value);
-      sargsFactory.lessThanEquals(fields, value);
     }
 
     @Override
@@ -375,7 +354,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     GreaterThanPredicate(Fields fields, Object value) {
       super(fields, value);
-      sargsFactory.greaterThan(fields, value);
     }
 
     @Override
@@ -392,7 +370,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     GreaterThanEqualsPredicate(Fields fields, Object value) {
       super(fields, value);
-      sargsFactory.greaterThanEquals(fields, value);
     }
 
     @Override
@@ -409,7 +386,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
 
     NullSafeEqualsPredicate(Fields fields, Object value) {
       super(fields, value);
-      sargsFactory.nullSafeEquals(fields, value);
     }
 
     @Override
@@ -426,7 +402,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
     private final List<Predicate> predicates = new ArrayList<>();
 
     AndPredicate() {
-      sargsFactory.startAnd();
     }
 
     @Override
@@ -451,7 +426,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
     private static final long serialVersionUID = 1L;
 
     OrPredicate() {
-      sargsFactory.startOr();
     }
 
     @Override
@@ -471,7 +445,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
     private static final long serialVersionUID = 1L;
 
     NotPredicate() {
-      sargsFactory.startNot();
     }
 
     @Override
@@ -491,10 +464,6 @@ public class PredicatePushDownFilter extends BaseOperation<Void> implements Filt
     @Override
     public boolean apply(TupleEntry tupleEntry) {
       return predicate.apply(tupleEntry);
-    }
-
-    @Override
-    public void end() {
     }
 
   }
